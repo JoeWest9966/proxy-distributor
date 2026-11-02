@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proxy Distributor · 本机项目面板</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #12151a;
+    --panel-2: #171b21;
+    --line: #242a33;
+    --text: #e6e9ee;
+    --muted: #8a94a3;
+    --dim: #5c6573;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --off: #6b7280;
+    --link: #60a5fa;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 0 48px;
+  }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px;
+    background: rgba(11, 13, 16, .82);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .mark {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: linear-gradient(140deg, #2563eb, #7c3aed);
+    display: grid; place-items: center;
+    font: 700 12px/1 var(--mono); color: #fff;
+  }
+  .brand h1 { margin: 0; font-size: 15px; letter-spacing: .2px; font-weight: 650; }
+  .brand span { color: var(--dim); font: 400 11px/1 var(--mono); }
+  .spacer { flex: 1; }
+  .chip {
+    font: 500 11px/1 var(--mono);
+    color: var(--muted);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    padding: 6px 9px; border-radius: 999px;
+    white-space: nowrap;
+  }
+  button {
+    font: 500 12px/1 inherit;
+    color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 12px; cursor: pointer;
+    transition: background .15s, border-color .15s, transform .06s;
+  }
+  button:hover { background: #1e242c; border-color: #313945; }
+  button:active { transform: translateY(1px); }
+  button[aria-pressed="true"] { border-color: #2f4f7a; color: var(--link); background: #131c28; }
+  button[disabled] { opacity: .55; cursor: progress; }
+
+  main { padding: 20px 24px 0; max-width: 1180px; margin: 0 auto; }
+  .summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .summary .pill { font: 500 11px/1 var(--mono); padding: 6px 10px; border-radius: 999px;
+                   border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+  .summary .pill b { color: var(--text); font-weight: 650; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 20px 16px;
+    margin-bottom: 14px;
+    transition: border-color .18s;
+  }
+  .card:hover { border-color: #2c3542; }
+  .card.absent { opacity: .62; }
+
+  .card-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .card-head h2 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: .1px; }
+  .repo { font: 400 11px/1 var(--mono); color: var(--dim); }
+  .status {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 7px;
+    font: 600 11px/1 var(--mono); letter-spacing: .6px; text-transform: uppercase;
+    padding: 6px 11px; border-radius: 999px; border: 1px solid;
+  }
+  .status .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .status.running { color: var(--ok); border-color: #1c4d3c; background: #0e1c17; }
+  .status.running .dot { box-shadow: 0 0 0 0 rgba(52, 211, 153, .55); animation: pulse 2.4s infinite; }
+  .status.installed { color: var(--warn); border-color: #4d3f16; background: #1c1810; }
+  .status.absent { color: var(--off); border-color: var(--line); background: var(--panel-2); }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, .5); }
+    70% { box-shadow: 0 0 0 7px rgba(52, 211, 153, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+  }
+
+  .grid {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    gap: 7px 14px;
+    align-items: start;
+  }
+  .grid > dt {
+    color: var(--dim); font: 500 11px/1.7 var(--mono);
+    letter-spacing: .5px; text-transform: uppercase;
+  }
+  .grid > dd { margin: 0; min-width: 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+  .row + .row { margin-top: 4px; }
+
+  code, .mono { font-family: var(--mono); font-size: 12px; }
+  .path { color: #cbd5e1; word-break: break-all; }
+  .kind {
+    font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .5px;
+    color: var(--dim); border: 1px solid var(--line); border-radius: 5px;
+    padding: 3px 5px; background: var(--panel-2);
+  }
+  .sub { color: var(--dim); font: 400 11px/1.6 var(--mono); }
+
+  .port {
+    display: inline-flex; align-items: center; gap: 7px;
+    font: 600 12px/1 var(--mono);
+    background: #0f1a26; border: 1px solid #1e3a56; color: #93c5fd;
+    padding: 6px 10px; border-radius: 8px;
+  }
+  .port:hover { background: #12233a; text-decoration: none; border-color: #2a5580; }
+  .port .bind { color: #64798f; font-weight: 400; }
+  .port .src { color: #47607a; font-weight: 400; font-size: 10px; }
+
+  .svc { font: 500 11px/1 var(--mono); padding: 4px 8px; border-radius: 6px;
+         border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); }
+  .svc.on { color: var(--ok); border-color: #1c4d3c; }
+  .svc.off { color: var(--dim); }
+
+  details.rel { margin-top: 8px; }
+  details.rel > summary {
+    cursor: pointer; list-style: none;
+    font: 500 11px/1 var(--mono); color: var(--dim);
+    padding: 5px 0; user-select: none;
+  }
+  details.rel > summary::-webkit-details-marker { display: none; }
+  details.rel > summary::before { content: "▸ "; color: var(--dim); }
+  details.rel[open] > summary::before { content: "▾ "; }
+  details.rel > summary:hover { color: var(--muted); }
+  details.rel .row { margin-top: 6px; }
+  .proc-rel { color: var(--dim); }
+  .proc-rel code { color: #8a94a3; }
+
+  .notes { margin: 12px 0 0; padding: 0; list-style: none; }
+  .notes li {
+    font: 400 12px/1.55 inherit; color: #a8b3c1;
+    padding-left: 16px; position: relative;
+  }
+  .notes li::before { content: "·"; position: absolute; left: 5px; color: var(--dim); }
+
+  .empty { color: var(--muted); font: 400 13px/1.6 inherit; margin: 12px 0 0; }
+  footer { max-width: 1180px; margin: 24px auto 0; padding: 0 24px; color: var(--dim);
+           font: 400 11px/1.7 var(--mono); }
+  footer .roots { word-break: break-all; }
+  .err { color: #f87171; }
+  @media (prefers-reduced-motion: reduce) { .status.running .dot { animation: none; } }
+  @media (max-width: 620px) {
+    main { padding: 16px 14px 0; }
+    header { padding: 12px 14px; }
+    .grid { grid-template-columns: 1fr; gap: 2px; }
+    .grid > dt { margin-top: 8px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="mark">PD</div>
+    <div>
+      <h1>Proxy Distributor</h1>
+      <span id="host">—</span>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <span class="chip" id="updated">未扫描</span>
+  <button id="auto" aria-pressed="true" title="每 5 秒自动刷新">自动刷新 · 开</button>
+  <button id="refresh">立即刷新</button>
+</header>
+
+<main>
+  <div class="summary" id="summary"></div>
+  <div id="cards"></div>
+</main>
+
+<footer>
+  <div>扫描根：<span class="roots" id="roots">—</span></div>
+  <div id="meta">—</div>
+</footer>
+
+<script>
+const AUTO_MS = 5000;
+let timer = null;
+let auto = true;
+let busy = false;
+let last = null;
+
+const $ = (id) => document.getElementById(id);
+
+function rel(ms) {
+  if (!ms) return "—";
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return `${Math.floor(s)} 秒前`;
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  return `${Math.floor(s / 86400)} 天前`;
+}
+
+function dur(ms) {
+  if (!ms) return "—";
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`;
+  return `${Math.floor(s / 86400)}d${Math.floor((s % 86400) / 3600)}h`;
+}
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function statusLabel(s) {
+  return { running: "running", installed: "installed", absent: "absent" }[s] || s;
+}
+
+function portChip(p) {
+  const src = p.sources.map(esc).join("+");
+  return `<a class="port" href="${esc(p.url || "#")}" target="_blank" rel="noreferrer">
+      ${esc(p.port)}<span class="bind">${esc(p.proto)} · ${esc(p.bind)}</span>
+      <span class="src">${src}</span></a>`;
+}
+
+function card(p) {
+  const inst = p.installations.length
+    ? p.installations.map((i) => `<div class="row">
+        <span class="kind">${esc(i.kind)}</span>
+        <code class="path">${esc(i.path)}</code>
+        <span class="sub">${esc(i.detail || "")}${i.modified_ms ? " · " + rel(i.modified_ms) : ""}</span>
+      </div>`).join("")
+    : `<div class="row"><span class="sub">未发现安装文件</span></div>`;
+
+  const ports = (p.ports.length
+    ? `<div class="row">${p.ports.map(portChip).join("")}</div>`
+    : `<div class="row"><span class="sub">无监听端口</span></div>`);
+
+  const direct = p.processes.filter((x) => x.relation !== "related");
+  const related = p.processes.filter((x) => x.relation === "related");
+
+  const procs = (direct.length || related.length)
+    ? (direct.length
+        ? direct.map((x) => `<div class="row">
+            <code>${esc(x.name)}</code>
+            <span class="sub">pid ${x.pid} · 已运行 ${dur(x.started_ms)}</span>
+          </div>
+          <div class="row"><code class="path">${esc(x.exe || "—")}</code></div>
+          <div class="row"><span class="sub">${esc(x.cmdline)}</span></div>`).join("")
+        : `<div class="row"><span class="sub">没找到本体进程</span></div>`)
+      + (related.length
+        ? `<details class="rel"><summary>相关进程 · ${related.length} 个 · ${(p.related_ports || []).length} 个端口</summary>
+            ${related.map((x) => `<div class="row proc-rel">
+              <code>${esc(x.name)}</code>
+              <span class="sub">pid ${x.pid} · ${esc(x.matched_by)} · 已运行 ${dur(x.started_ms)}</span>
+              ${(p.related_ports || []).filter((b) => b.pid === x.pid).map(portChip).join("")}
+            </div>`).join("")}
+          </details>`
+        : "")
+    : `<div class="row"><span class="sub">无运行进程</span></div>`;
+
+
+  const svcs = p.services.length
+    ? `<div class="row">${p.services.map((s) =>
+        `<span class="svc ${s.active ? "on" : "off"}">${esc(s.unit)} · ${esc(s.state)}</span>`).join("")}</div>`
+    : `<div class="row"><span class="sub">无相关 systemd 单元</span></div>`;
+
+  const notes = p.notes.length
+    ? `<ul class="notes">${p.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>`
+    : "";
+
+  return `<section class="card ${esc(p.status)}">
+    <div class="card-head">
+      <h2>${esc(p.display_name)}</h2>
+      <a class="repo" href="${esc(p.repo_url)}" target="_blank" rel="noreferrer">${esc(p.repo)} ↗</a>
+      <span class="status ${esc(p.status)}"><span class="dot"></span>${statusLabel(p.status)}</span>
+    </div>
+    ${p.status === "absent"
+      ? `<p class="empty">本机没有检测到 <code>${esc(p.slug)}</code>：没有进程、没有监听端口、扫描根里也没有匹配的安装文件。</p>`
+      : `<dl class="grid">
+          <dt>端口</dt><dd>${ports}</dd>
+          <dt>进程</dt><dd>${procs}</dd>
+          <dt>路径</dt><dd>${inst}</dd>
+          <dt>服务</dt><dd>${svcs}</dd>
+        </dl>`}
+    ${notes}
+  </section>`;
+}
+
+function render(snap) {
+  last = snap;
+  $("host").textContent = snap.hostname;
+  $("roots").textContent = snap.scan_roots.join("  ·  ");
+  $("meta").textContent = `${snap.projects.length} 个项目 · 扫描耗时 ${snap.took_ms} ms · 数据 ${new Date(snap.generated_ms).toLocaleTimeString()}`;
+  const counts = { running: 0, installed: 0, absent: 0 };
+  snap.projects.forEach((p) => { counts[p.status] = (counts[p.status] || 0) + 1; });
+  $("summary").innerHTML = [
+    `<span class="pill"><b>${snap.projects.length}</b> 跟踪中</span>`,
+    `<span class="pill" style="color:var(--ok);border-color:#1c4d3c"><b>${counts.running}</b> running</span>`,
+    `<span class="pill" style="color:var(--warn);border-color:#4d3f16"><b>${counts.installed}</b> installed</span>`,
+    `<span class="pill"><b>${counts.absent}</b> absent</span>`,
+  ].join("");
+  $("cards").innerHTML = snap.projects.map(card).join("");
+  tick();
+}
+
+function tick() {
+  if (!last) return;
+  const age = Math.max(0, (Date.now() - last.generated_ms) / 1000);
+  $("updated").textContent = auto
+    ? `${age < 1 ? "刚刚" : Math.floor(age) + " 秒前"} · 自动刷新`
+    : `${Math.floor(age)} 秒前 · 已暂停`;
+  if (!auto) return;
+  const left = Math.max(0, Math.ceil(AUTO_MS / 1000 - age));
+  $("updated").textContent += ` · ${left}s 后刷新`;
+}
+
+async function load(force = false) {
+  if (busy) return;
+  busy = true;
+  const btn = $("refresh");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/detect" + (force ? "?refresh=1" : ""), { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    render(await res.json());
+  } catch (err) {
+    $("updated").innerHTML = `<span class="err">刷新失败：${esc(err.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    busy = false;
+    tick();
+  }
+}
+
+function setAuto(on) {
+  auto = on;
+  const btn = $("auto");
+  btn.setAttribute("aria-pressed", String(on));
+  btn.textContent = on ? "自动刷新 · 开" : "自动刷新 · 关";
+  if (timer) { clearInterval(timer); timer = null; }
+  if (on) timer = setInterval(() => load(false), AUTO_MS);
+  tick();
+}
+
+$("refresh").addEventListener("click", () => load(true));
+$("auto").addEventListener("click", () => setAuto(!auto));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) load(false);
+});
+
+load(true);
+setAuto(true);
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
