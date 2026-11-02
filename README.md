@@ -19,7 +19,25 @@ cargo run -- --scan-root /data                         # 追加扫描根
 
 **别绑 `0.0.0.0`**：eth0 是公网地址，面板没有鉴权。
 
-面板每 5 秒拉一次 `/api/detect`（服务端 1.5s 缓存），也可以手动刷新。
+左列是项目清单（顶部「+ 新增」），右边是选中项目的详情卡片。面板每 5 秒拉一次 `/api/detect`（服务端 1.5s 缓存），也可以手动刷新。
+
+## 加一个项目
+
+点左列「+ 新增」，贴 `https://github.com/owner/name`，回车。自动推出：
+
+| 字段 | 从什么推出来 |
+| --- | --- |
+| `slug` | 仓库名小写，`Zen-Gate` → `zen-gate` |
+| `aliases` | `[slug]` + 你在「额外别名」里填的（逗号分隔） |
+| `config_dirs` | `~/.config/<slug>` |
+
+链接的容错：`.git` 后缀、尾斜杠、`tree/main` 之后的部分、`git@github.com:owner/name.git`、`github.com/owner/name`、裸 `owner/name` 都认；非 github.com 的域名、缺仓库名、非法字符直接 400。
+
+添加**不校验仓库是否存在**（匿名 GitHub API 60 次/小时，这个 IP 上不止我们在用）。输错了就是一张一直 `absent` 的卡片，一眼能看出来，删掉重加。
+
+**检测靠名字匹配，不是 git 身份。** 仓库叫 `my-proxy`、本机装成 `/opt/mp` 的话扫不到 —— 把 `mp` 填进别名。参考写在弹窗里，不指望人记得。
+
+清单存在 `/var/lib/proxy-distributor/projects.json`（`--state <path>` 或 `$PROXY_DISTRIBUTOR_STATE` 可改；systemd 用 `StateDirectory=proxy-distributor` 建目录）。文件不存在 = 首次启动，落回种子数据（现在就是 zen-gate）。写盘是 write-then-rename，半截文件不会覆盖好的。
 
 ## 判定为「装了吗」的三档
 
@@ -47,7 +65,7 @@ cargo run -- --scan-root /data                         # 追加扫描根
 
 全部只读，不需要 root，没有外部依赖：
 
-- **进程**：`/proc/<pid>/{comm,exe,cwd,cmdline,stat}`，跳过内核线程。
+- **进程**：`/proc/<pid>/{comm,exe,cwd,cmdline,stat}`，跳过内核线程。命令行只在参数**长得像路径**时才算数（`/`、`./`、`../`、`~` 开头，或 `--flag=/path`）—— 否则 `grep zen-gate`、`curl -d '{"url":"owner/zen-gate"}'` 这种「只是提到了它」的进程会被当成它的进程。
 - **端口**：`/proc/net/tcp{,6}` 里 `0A`（LISTEN）的 socket inode，再只用已经匹配上的 pid 去 `/proc/<pid>/fd` 反查属主 —— 全量扫 fd 在这台机器上要 1 秒，限定 pid 后是毫秒。
 - **命令行里声明的端口**：`-port 18787` / `--port=18787` / `-listen host:port`，跟实际 socket 合并成 `socket+cmdline`，只有声明没 socket 的会单独标出来。
 - **路径**：`/opt`、`/usr/local/bin`、`/usr/local/lib`、`/srv`、`$HOME`、`$HOME/.config`、`/home/*`，深度 3，一次遍历服务所有项目。
@@ -60,6 +78,15 @@ cargo run -- --scan-root /data                         # 追加扫描根
 注意：systemd 单元里没有 `HOME`。所以主目录不是从 `$HOME` 猜的，而是依次取 `$HOME` → `/etc/passwd` 里本进程 uid 对应的 home → `/root` → `/home/*`。否则 `~/.config/<slug>` 会在服务模式下悄悄消失。
 
 ## API
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/detect[?refresh=1]` | 全部项目的探测结果 |
+| GET | `/api/projects` | 项目清单（不含探测） |
+| POST | `/api/projects` | `{"url": "...", "aliases": "a, b"}` → 201 / 400 / 409 重名 |
+| DELETE | `/api/projects/{slug}` | 204 / 404 |
+
+写接口没有鉴权 —— 能进 tailnet 的人就能改清单。现在是只读转可写，说一句作数。
 
 `GET /api/detect[?refresh=1]` → JSON：
 
@@ -86,21 +113,7 @@ cargo run -- --scan-root /data                         # 追加扫描根
 
 `GET /healthz` → `ok`。
 
-## 加一个项目
-
-`src/registry.rs`：
-
-```rust
-Project {
-    slug: "new-api",
-    display_name: "New API",
-    repo: "Calcium-Ion/new-api",
-    aliases: &["new-api", "newapi"],   // 路径/进程名匹配用
-    config_dirs: &[".config/new-api"], // $HOME 下属于它的目录
-},
-```
-
-`aliases` 里长度 ≥ 4 的才参与子串匹配，短别名（`zg`）只做整名或前缀匹配 —— 否则 `zg` 会把 `zgrep` 全抓进来。
+别名里长度 ≥ 4 的才参与子串匹配，短别名（`zg`）只做整名或前缀匹配 —— 否则 `zg` 会把 `zgrep` 全抓进来。
 
 ## 已知边界
 

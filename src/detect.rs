@@ -315,7 +315,7 @@ fn name_matches(name: &str, project: &Project) -> bool {
     project.aliases.iter().any(|alias| {
         name == *alias
             || name
-                .strip_prefix(alias)
+                .strip_prefix(alias.as_str())
                 .is_some_and(|rest| rest.starts_with(['-', '_', '.']))
     })
 }
@@ -326,6 +326,22 @@ fn text_mentions(text: &str, project: &Project) -> bool {
         .substring_hints()
         .iter()
         .any(|hint| lower.contains(hint))
+}
+
+/// Only arguments that are shaped like a filesystem path count as a tie to a
+/// project. Otherwise `grep zen-gate` or `curl -d '{"url":"owner/zen-gate"}'`
+/// would invent processes that have nothing to do with it.
+fn path_like(token: &str) -> bool {
+    let value = token.split_once('=').map(|(_, v)| v).unwrap_or(token);
+    value.starts_with('/')
+        || value.starts_with("./")
+        || value.starts_with("../")
+        || value.starts_with('~')
+}
+
+fn cmdline_mentions(project: &Project, args: &[String]) -> bool {
+    args.iter()
+        .any(|arg| path_like(arg) && text_mentions(arg, project))
 }
 
 /// Returns how a process is tied to the project, and whether that tie is direct
@@ -339,7 +355,7 @@ fn proc_match(project: &Project, p: &ProcEntry) -> Option<(&'static str, &'stati
             return Some(("exe", "direct"));
         }
     }
-    if p.cmdline.iter().any(|arg| text_mentions(arg, project)) {
+    if cmdline_mentions(project, &p.cmdline) {
         return Some(("cmdline", "related"));
     }
     if p.cwd.as_deref().is_some_and(|cwd| text_mentions(&cwd.to_string_lossy(), project)) {
@@ -537,7 +553,7 @@ fn scan_paths(projects: &[Project], roots: &[PathBuf]) -> Vec<Vec<Installation>>
     // its more specific kind (dedupe keeps the first record).
     let homes = homes();
     for (idx, project) in projects.iter().enumerate() {
-        for rel in project.config_dirs {
+        for rel in &project.config_dirs {
             for home in &homes {
                 let path = home.join(rel);
                 if let Ok(meta) = fs::metadata(&path) {
@@ -871,13 +887,7 @@ mod tests {
     use super::*;
 
     fn zen_gate() -> Project {
-        Project {
-            slug: "zen-gate",
-            display_name: "Zen Gate",
-            repo: "LAGcomcom/zen-gate",
-            aliases: &["zen-gate", "zen_gate", "zengate", "zg"],
-            config_dirs: &[".config/zen-gate"],
-        }
+        Project::from_url("https://github.com/LAGcomcom/zen-gate", "zen_gate, zengate, zg").unwrap()
     }
 
     #[test]
@@ -896,6 +906,31 @@ mod tests {
         let p = zen_gate();
         assert!(text_mentions("/root/.config/zen-gate/subs", &p));
         assert!(!text_mentions("/usr/bin/zgrep -r", &p));
+    }
+
+    #[test]
+    fn cmdline_ties_need_a_path_shaped_argument() {
+        let p = zen_gate();
+        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // sidecars that actually point at its files
+        assert!(cmdline_mentions(
+            &p,
+            &args(&["/usr/local/bin/sing-box", "-c", "/root/.config/zen-gate/subs/x.json"])
+        ));
+        assert!(cmdline_mentions(
+            &p,
+            &args(&["/usr/bin/x", "--config=/root/.config/zen-gate/app.toml"])
+        ));
+        assert!(cmdline_mentions(
+            &p,
+            &args(&["/opt/zen-gate-panel/panel-proxy", "-listen", "127.0.0.1:18788"])
+        ));
+        // things that merely mention the name
+        assert!(!cmdline_mentions(&p, &args(&["/usr/bin/grep", "zen-gate"])));
+        assert!(!cmdline_mentions(
+            &p,
+            &args(&["/usr/bin/curl", "-d", "{\"url\":\"apernet/zen-gate\"}"])
+        ));
     }
 
     #[test]
