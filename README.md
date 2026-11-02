@@ -31,6 +31,18 @@ cargo run -- --scan-root /data                         # 追加扫描根
 
 进程还分两档：`direct` 是本体，`related` 只是命令行或 cwd 里引用了它（比如 zen-gate 拉起来的 `sing-box`、配套的 `panel-proxy`）。相关进程的端口折叠在「相关进程」里，不跟本体端口混在一起。
 
+## 页面与底部 dock
+
+页面是单页路由，底部浮动 dock 是导航（视觉照 Exitmap 的 floating-dock / workbuddy-manager，MIT：圆形按钮、悬停放大、hover tooltip、当前页底部小圆点）。现在只有一项「项目检测」，路径 `/detect`。
+
+加一个菜单项 = 三步，其中第二步之后服务端一行都不用改：
+
+1. `assets/index.html` 里的 `PAGES` 数组加 `{ path: "/xxx", title: "…", icon: `<svg…>` }`；
+2. `<main>` 里加 `<section class="page" id="page-xxx">…</section>`；
+3. 打完收工。非 `/api/*` 的路径都落到 SPA 兜底，直接刷新 `/detect` 也是 200，不用在 Rust 里加路由。
+
+注意 `/` 会重定向到第一个菜单项（现在是 `/detect`）。
+
 ## 数据从哪来
 
 全部只读，不需要 root，没有外部依赖：

@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::{Query, State};
-use axum::http::header;
-use axum::response::{Html, IntoResponse};
+use axum::http::{StatusCode, Uri, header};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 
@@ -53,7 +53,23 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/", get(index))
         .route("/api/detect", get(api_detect))
         .route("/healthz", get(|| async { "ok" }))
+        .fallback(spa)
         .with_state(state)
+}
+
+/// Menu pages are client-side routes (`/detect`, and whatever comes next), so
+/// any non-API path must serve the shell instead of a 404. Adding a menu item
+/// stays a frontend-only change.
+async fn spa(uri: Uri) -> Response {
+    let path = uri.path();
+    if path.starts_with("/api/") {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "no such endpoint", "path": path })),
+        )
+            .into_response();
+    }
+    index().await.into_response()
 }
 
 async fn index() -> impl IntoResponse {
