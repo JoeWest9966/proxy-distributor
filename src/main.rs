@@ -16,20 +16,21 @@ proxy-distributor — 本机项目检测面板
   proxy-distributor [选项]
 
 选项:
-  --bind <ADDR:PORT>   监听地址 (默认 127.0.0.1:18791)
+  --bind <ADDR:PORT>   监听地址，可重复 (默认 127.0.0.1:18791)
+                       例: --bind 127.0.0.1:18791 --bind 100.64.0.1:18791
   --scan-root <PATH>   追加扫描根（可重复，默认 /opt /usr/local/bin /usr/local/lib /srv $HOME $HOME/.config /home/*）
   --json               不启服务，只打印一次 JSON 探测结果
   -h, --help           显示本帮助
 ";
 
 struct Args {
-    bind: SocketAddr,
+    binds: Vec<SocketAddr>,
     json: bool,
     scan_roots: Vec<PathBuf>,
 }
 
 fn parse_args() -> Result<Option<Args>, String> {
-    let mut bind: SocketAddr = "127.0.0.1:18791".parse().expect("static default addr");
+    let mut binds: Vec<SocketAddr> = Vec::new();
     let mut json = false;
     let mut scan_roots = Vec::new();
 
@@ -43,7 +44,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--json" => json = true,
             "--bind" => {
                 let v = it.next().ok_or("--bind 需要一个地址")?;
-                bind = v.parse().map_err(|_| format!("无法解析地址: {v}"))?;
+                binds.push(v.parse().map_err(|_| format!("无法解析地址: {v}"))?);
             }
             "--scan-root" => {
                 let v = it.next().ok_or("--scan-root 需要一个路径")?;
@@ -51,7 +52,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             other => {
                 if let Some(v) = other.strip_prefix("--bind=") {
-                    bind = v.parse().map_err(|_| format!("无法解析地址: {v}"))?;
+                    binds.push(v.parse().map_err(|_| format!("无法解析地址: {v}"))?);
                 } else if let Some(v) = other.strip_prefix("--scan-root=") {
                     scan_roots.push(PathBuf::from(v));
                 } else {
@@ -60,8 +61,11 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
         }
     }
+    if binds.is_empty() {
+        binds.push("127.0.0.1:18791".parse().expect("static default addr"));
+    }
     Ok(Some(Args {
-        bind,
+        binds,
         json,
         scan_roots,
     }))
@@ -100,21 +104,53 @@ async fn main() {
     ));
     let app = web::router(state);
 
-    let listener = match TcpListener::bind(args.bind).await {
-        Ok(listener) => listener,
-        Err(err) => {
-            eprintln!("无法监听 {}: {err}", args.bind);
-            std::process::exit(1);
+    // One `Router` per listener: `axum::serve` takes ownership of it.
+    let mut listeners = Vec::new();
+    for addr in &args.binds {
+        match TcpListener::bind(addr).await {
+            Ok(listener) => listeners.push((*addr, listener)),
+            Err(err) => {
+                eprintln!("无法监听 {addr}: {err}");
+                std::process::exit(1);
+            }
         }
-    };
-    println!("proxy-distributor listening on http://{}", args.bind);
+    }
+    for (addr, _) in &listeners {
+        println!("proxy-distributor listening on http://{addr}");
+    }
 
-    if let Err(err) = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-    {
-        eprintln!("服务退出: {err}");
-        std::process::exit(1);
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        let _ = stop_tx.send(true);
+    });
+
+    let mut tasks = tokio::task::JoinSet::new();
+    for (addr, listener) in listeners {
+        let app = app.clone();
+        let mut stop = stop_rx.clone();
+        tasks.spawn(async move {
+            let result = axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = stop.changed().await;
+                })
+                .await;
+            (addr, result)
+        });
+    }
+
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok((addr, Err(err))) => {
+                eprintln!("{addr} 服务退出: {err}");
+                std::process::exit(1);
+            }
+            Ok((_, Ok(()))) => {}
+            Err(err) => {
+                eprintln!("服务任务崩了: {err}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 

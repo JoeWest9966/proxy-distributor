@@ -92,10 +92,19 @@ pub struct ProjectReport {
 }
 
 #[derive(Serialize, Clone, Debug)]
+pub struct Timeline {
+    pub procs_ms: u64,
+    pub sockets_ms: u64,
+    pub paths_ms: u64,
+    pub services_ms: u64,
+}
+
+#[derive(Serialize, Clone, Debug)]
 pub struct Snapshot {
     pub generated_ms: u64,
     pub hostname: String,
     pub took_ms: u64,
+    pub timeline: Timeline,
     pub scan_roots: Vec<String>,
     pub projects: Vec<ProjectReport>,
 }
@@ -386,16 +395,9 @@ pub fn default_roots() -> Vec<PathBuf> {
         PathBuf::from("/usr/local/lib"),
         PathBuf::from("/srv"),
     ];
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+    for home in homes() {
         roots.push(home.join(".config"));
         roots.push(home);
-    }
-    if let Ok(users) = fs::read_dir("/home") {
-        for user in users.flatten() {
-            if user.path().is_dir() {
-                roots.push(user.path());
-            }
-        }
     }
     roots
 }
@@ -550,10 +552,23 @@ fn scan_paths(projects: &[Project], roots: &[PathBuf]) -> Vec<Vec<Installation>>
     finder.hits
 }
 
+/// Every home directory worth looking in.
+///
+/// `$HOME` is not enough: under systemd the unit has no HOME, and a panel that
+/// silently stops finding `~/.config/<slug>` because of that is worse than
+/// useless. So: env, then the passwd entry for our own uid, then `/root` and
+/// `/home/*` as a backstop.
 fn homes() -> Vec<PathBuf> {
-    let mut homes = Vec::new();
+    let mut homes: Vec<PathBuf> = Vec::new();
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         homes.push(home);
+    }
+    if let Some(home) = passwd_home() {
+        homes.push(home);
+    }
+    let root = PathBuf::from("/root");
+    if root.is_dir() {
+        homes.push(root);
     }
     if let Ok(users) = fs::read_dir("/home") {
         for user in users.flatten() {
@@ -562,7 +577,29 @@ fn homes() -> Vec<PathBuf> {
             }
         }
     }
+    homes.dedup();
     homes
+}
+
+/// Home of the uid this process runs as, straight out of `/etc/passwd`.
+fn passwd_home() -> Option<PathBuf> {
+    let uid = fs::read_to_string("/proc/self/status")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))?
+        .split_whitespace()
+        .next()?
+        .to_string();
+    let passwd = fs::read_to_string("/etc/passwd").ok()?;
+    passwd.lines().find_map(|line| {
+        let mut f = line.split(':');
+        let (_, _, user_uid) = (f.next()?, f.next()?, f.next()?);
+        if user_uid != uid {
+            return None;
+        }
+        let home = f.nth(2)?; // fields: passwd, gid, gecos, dir
+        Some(PathBuf::from(home))
+    })
 }
 
 // ------------------------------------------------------------------- systemd
@@ -619,6 +656,7 @@ fn scan_services(project: &Project) -> Vec<Service> {
 pub fn detect(projects: &[Project], roots: &[PathBuf]) -> Snapshot {
     let started = std::time::Instant::now();
     let procs = read_procs();
+    let procs_ms = started.elapsed().as_millis() as u64;
 
     // Match first, then attribute sockets only for the pids we already matched.
     let matches: Vec<Vec<Match<'_>>> = projects
@@ -641,8 +679,12 @@ pub fn detect(projects: &[Project], roots: &[PathBuf]) -> Snapshot {
     let listeners = read_listeners();
     let wanted: HashSet<u64> = listeners.iter().map(|l| l.inode).collect();
     let owners = socket_owners(&wanted, &candidate_pids);
+    let sockets_ms = started.elapsed().as_millis() as u64 - procs_ms;
 
     let installations = scan_paths(projects, roots);
+    let paths_ms = started.elapsed().as_millis() as u64 - procs_ms - sockets_ms;
+
+    let services_started = std::time::Instant::now();
     let reports = projects
         .iter()
         .zip(matches)
@@ -656,6 +698,12 @@ pub fn detect(projects: &[Project], roots: &[PathBuf]) -> Snapshot {
             .map(|h| h.trim().to_string())
             .unwrap_or_else(|_| "unknown".into()),
         took_ms: started.elapsed().as_millis() as u64,
+        timeline: Timeline {
+            procs_ms,
+            sockets_ms,
+            paths_ms,
+            services_ms: services_started.elapsed().as_millis() as u64,
+        },
         scan_roots: roots.iter().map(|r| r.to_string_lossy().into_owned()).collect(),
         projects: reports,
     }

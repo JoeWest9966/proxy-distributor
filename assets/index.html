@@ -312,7 +312,10 @@ function render(snap) {
   last = snap;
   $("host").textContent = snap.hostname;
   $("roots").textContent = snap.scan_roots.join("  ·  ");
-  $("meta").textContent = `${snap.projects.length} 个项目 · 扫描耗时 ${snap.took_ms} ms · 数据 ${new Date(snap.generated_ms).toLocaleTimeString()}`;
+  const t = snap.timeline || {};
+  const parts = [["proc", t.procs_ms], ["sock", t.sockets_ms], ["path", t.paths_ms], ["svc", t.services_ms]]
+    .filter(([, ms]) => ms != null).map(([k, ms]) => `${k} ${ms}`).join(" / ");
+  $("meta").textContent = `${snap.projects.length} 个项目 · 扫描 ${snap.took_ms} ms${parts ? "（" + parts + "）" : ""} · 数据 ${new Date(snap.generated_ms).toLocaleTimeString()}`;
   const counts = { running: 0, installed: 0, absent: 0 };
   snap.projects.forEach((p) => { counts[p.status] = (counts[p.status] || 0) + 1; });
   $("summary").innerHTML = [

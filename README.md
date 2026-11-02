@@ -5,11 +5,19 @@
 当前跟踪的第一个项目是 [`LAGcomcom/zen-gate`](https://github.com/LAGcomcom/zen-gate)。加新项目只改 `src/registry.rs` 里的一行结构体，检测逻辑是通用的。
 
 ```
-cargo run                       # 默认 http://127.0.0.1:18791
-cargo run -- --bind 0.0.0.0:8080
-cargo run -- --json             # 不开服务，打印一次检测结果
-cargo run -- --scan-root /data  # 追加扫描根
+cargo run                                              # 默认 http://127.0.0.1:18791
+cargo run -- --bind 127.0.0.1:18791 --bind 100.64.0.1:18791   # 多个监听，可重复
+cargo run -- --json                                    # 不开服务，打印一次检测结果
+cargo run -- --scan-root /data                         # 追加扫描根
 ```
+
+`--bind` 可以给多次。这台机器上跑的是：
+
+```
+--bind 127.0.0.1:18791 --bind 100.106.43.81:18791
+```
+
+**别绑 `0.0.0.0`**：eth0 是公网地址，面板没有鉴权。
 
 面板每 5 秒拉一次 `/api/detect`（服务端 1.5s 缓存），也可以手动刷新。
 
@@ -33,6 +41,12 @@ cargo run -- --scan-root /data  # 追加扫描根
 - **路径**：`/opt`、`/usr/local/bin`、`/usr/local/lib`、`/srv`、`$HOME`、`$HOME/.config`、`/home/*`，深度 3，一次遍历服务所有项目。
 - **服务**：`/etc|/usr/lib|/lib|/run/systemd/system` 里的 `.service`，命中名字或内容再 `systemctl is-active`。
 
+## 部署
+
+`/etc/systemd/system/proxy-distributor.service` → `systemctl enable --now proxy-distributor`。二进制在 `target/release/proxy-distributor`，改完代码 `cargo build --release && systemctl restart proxy-distributor`。
+
+注意：systemd 单元里没有 `HOME`。所以主目录不是从 `$HOME` 猜的，而是依次取 `$HOME` → `/etc/passwd` 里本进程 uid 对应的 home → `/root` → `/home/*`。否则 `~/.config/<slug>` 会在服务模式下悄悄消失。
+
 ## API
 
 `GET /api/detect[?refresh=1]` → JSON：
@@ -41,7 +55,8 @@ cargo run -- --scan-root /data  # 追加扫描根
 {
   "generated_ms": 1793596676169,
   "hostname": "9996696.xyz",
-  "took_ms": 135,
+  "took_ms": 118,
+  "timeline": { "procs_ms": 15, "sockets_ms": 3, "paths_ms": 78, "services_ms": 22 },
   "scan_roots": ["/opt", "..."],
   "projects": [{
     "slug": "zen-gate",
