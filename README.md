@@ -51,7 +51,12 @@ cargo run -- --scan-root /data                         # 追加扫描根
 
 ## 页面与底部 dock
 
-页面是单页路由，底部浮动 dock 是导航（视觉照 Exitmap 的 floating-dock / workbuddy-manager，MIT：圆形按钮、悬停放大、hover tooltip、当前页底部小圆点）。现在只有一项「项目检测」，路径 `/detect`。
+页面是单页路由，底部浮动 dock 是导航（视觉照 Exitmap 的 floating-dock / workbuddy-manager，MIT：圆形按钮、悬停放大、hover tooltip、当前页底部小圆点）。
+
+| 菜单 | 路径 | 状态 |
+| --- | --- | --- |
+| 项目检测 | `/detect` | 完整 |
+| 代理分配 | `/allocate` | 只有骨架：左列 + 右侧详情的框，内容待定 |
 
 加一个菜单项 = 三步，其中第二步之后服务端一行都不用改：
 
